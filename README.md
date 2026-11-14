@@ -7,6 +7,7 @@ It runs as one extra container next to your existing Homepage container and work
 
 ## Features
 <img width="1354" height="720" alt="Login" src="https://github.com/user-attachments/assets/3970aad4-62ff-4d60-8ca2-e7f7b5c3e335" />
+<img width="1890" height="930" alt="Services" src="https://github.com/user-attachments/assets/1388fd23-c4d6-49fc-8d34-78532afcaa78" />
 
 - **Services editor** (`services.yaml`)
   - One tab per top-level group; `+ Tab` creates a new one.
