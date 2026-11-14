@@ -15,6 +15,7 @@ It runs as one extra container next to your existing Homepage container and work
   - Service dialog with all common fields, icon picker, widget editor (type suggestions + link to the widget docs) and a generic key/value editor for everything else.
   - Group dialog for name, parent group and all layout options (`style`, `columns`, `header`, `tab`, `icon`, …). The layout is written to `settings.yaml`.
 <img width="1354" height="720" alt="Image import" src="https://github.com/user-attachments/assets/3a48617a-a662-490e-ac7e-a87a8cb835e7" />
+
 - **Keeps `settings.yaml` → `layout` in sync.** Homepage orders and nests groups by `layout` when it exists. When you save the services, the layout gets the same structure: moved subgroups move along, every group gets an entry, existing options and comments are kept.
 - **Visual editors** for `widgets.yaml`, `settings.yaml` (incl. background, layout, quick launch) and `proxmox.yaml`.
 - **Code editor** (CodeMirror) for `custom.css`, `custom.js` and every other file, with YAML validation – broken YAML is never saved.
