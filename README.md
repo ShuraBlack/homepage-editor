@@ -5,6 +5,7 @@ A small web UI for editing the configuration of a [gethomepage.dev](https://geth
 It runs as one extra container next to your existing Homepage container and works directly on the same `config/` and `images/` folders. No database, no build step: a single Go binary with the frontend embedded.
 
 ## Features
+<img width="1354" height="720" alt="Login" src="https://github.com/user-attachments/assets/3970aad4-62ff-4d60-8ca2-e7f7b5c3e335" />
 
 - **Services editor** (`services.yaml`)
   - One tab per top-level group; `+ Tab` creates a new one.
@@ -12,6 +13,7 @@ It runs as one extra container next to your existing Homepage container and work
   - Drag & drop between groups. The target container is outlined and named while dragging; dropping onto a tab moves the item into that group.
   - Service dialog with all common fields, icon picker, widget editor (type suggestions + link to the widget docs) and a generic key/value editor for everything else.
   - Group dialog for name, parent group and all layout options (`style`, `columns`, `header`, `tab`, `icon`, …). The layout is written to `settings.yaml`.
+<img width="1354" height="720" alt="Themes" src="https://github.com/user-attachments/assets/2825bf32-b582-4fd7-9c08-ff7d33fcf614" />
 - **Keeps `settings.yaml` → `layout` in sync.** Homepage orders and nests groups by `layout` when it exists. When you save the services, the layout gets the same structure: moved subgroups move along, every group gets an entry, existing options and comments are kept.
 - **Visual editors** for `widgets.yaml`, `settings.yaml` (incl. background, layout, quick launch) and `proxmox.yaml`.
 - **Code editor** (CodeMirror) for `custom.css`, `custom.js` and every other file, with YAML validation – broken YAML is never saved.
@@ -51,11 +53,12 @@ homepage/
 └── editor/            # ← this repository
 ```
 
-**1. Get the code next to your compose file**
+**1. Get the code next to your compose file**<img width="1354" height="720" alt="export-1794622581227" src="https://github.com/user-attachments/assets/eac90a82-ecb8-47ea-b0d0-bec3d9756421" />
+
 
 ```sh
 cd homepage
-git clone <this repository> editor
+git clone https://github.com/ShuraBlack/homepage-editor.git editor
 ```
 
 **2. Add the service to your existing `docker-compose.yml`**
