@@ -57,7 +57,7 @@ homepage/
 └── editor/            # ← this repository
 ```
 
-**1. Get the code next to your compose file**<img width="1354" height="720" alt="export-1794622581227" src="https://github.com/user-attachments/assets/eac90a82-ecb8-47ea-b0d0-bec3d9756421" />
+**1. Get the code next to your compose file**
 
 
 ```sh
