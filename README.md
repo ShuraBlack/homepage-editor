@@ -1,3 +1,4 @@
+
 # Homepage Editor
 
 A small web UI for editing the configuration of a [gethomepage.dev](https://gethomepage.dev) dashboard: visual editors for the YAML files, a code editor as fallback and a file manager for icons and background images.
@@ -13,7 +14,7 @@ It runs as one extra container next to your existing Homepage container and work
   - Drag & drop between groups. The target container is outlined and named while dragging; dropping onto a tab moves the item into that group.
   - Service dialog with all common fields, icon picker, widget editor (type suggestions + link to the widget docs) and a generic key/value editor for everything else.
   - Group dialog for name, parent group and all layout options (`style`, `columns`, `header`, `tab`, `icon`, …). The layout is written to `settings.yaml`.
-<img width="1354" height="720" alt="Themes" src="https://github.com/user-attachments/assets/2825bf32-b582-4fd7-9c08-ff7d33fcf614" />
+<img width="1354" height="720" alt="Image import" src="https://github.com/user-attachments/assets/3a48617a-a662-490e-ac7e-a87a8cb835e7" />
 - **Keeps `settings.yaml` → `layout` in sync.** Homepage orders and nests groups by `layout` when it exists. When you save the services, the layout gets the same structure: moved subgroups move along, every group gets an entry, existing options and comments are kept.
 - **Visual editors** for `widgets.yaml`, `settings.yaml` (incl. background, layout, quick launch) and `proxmox.yaml`.
 - **Code editor** (CodeMirror) for `custom.css`, `custom.js` and every other file, with YAML validation – broken YAML is never saved.
@@ -22,6 +23,7 @@ It runs as one extra container next to your existing Homepage container and work
 - **Comments and unknown keys survive** visual editing.
 - **Editor settings in the UI:** accent colour, Homepage URL, public paths of the image folders, sign out other sessions.
 - **Languages:** English, German, French, Italian. The choice is stored in the browser.
+<img width="1354" height="720" alt="Themes" src="https://github.com/user-attachments/assets/2825bf32-b582-4fd7-9c08-ff7d33fcf614" />
 
 ## How it works
 
