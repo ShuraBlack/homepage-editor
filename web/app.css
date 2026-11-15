@@ -212,7 +212,7 @@ body.dragging .drop-end { display: block; }
 .fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ftype { font-size: 10px; font-weight: 700; color: var(--accent-text); display: grid; place-items: center; }
 .factions { display: flex; gap: 6px; padding-right: 10px; }
-.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+.gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
 .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; display: grid; }
 .tile.sel, .tile:hover { border-color: var(--accent); }
 .tile.dir { cursor: pointer; place-items: center; padding: 10px; }
@@ -221,7 +221,8 @@ body.dragging .drop-end { display: block; }
 .tile-ico { height: 80px; display: grid; place-items: center; color: var(--muted); }
 .tile-ico.dir-ico { color: var(--accent-text); }
 .tile-name { font-size: 12px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.tile-actions { display: flex; justify-content: center; gap: 4px; padding: 0 6px 8px; }
+.tile-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px; padding: 0 6px 8px; }
+.tile-actions .icon-btn { width: 28px; height: 28px; } /* four buttons must fit the narrowest tile */
 .files.dropping { outline: 2px dashed var(--accent); outline-offset: -8px; }
 .drop-overlay { position: absolute; inset: 0; display: grid; place-items: center; background: var(--overlay); font-size: 18px; color: var(--accent-text); pointer-events: none; border-radius: var(--r); }
 .preview-img { max-width: 100%; max-height: 60vh; display: block; margin: 0 auto; background: repeating-conic-gradient(#222 0 25%, #2b2b2b 0 50%) 0 0 / 16px 16px; border-radius: 8px; }
