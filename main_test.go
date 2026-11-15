@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -239,5 +240,16 @@ func TestSessionCookieAndAccent(t *testing.T) {
 	page := do(h, nil, "GET", "/login", nil, "").Body.String()
 	if !strings.Contains(page, "--accent:#3e63dd;--accent-ink:#ffffff") {
 		t.Errorf("login page should use the saved accent: %s", page[:min(len(page), 300)])
+	}
+}
+
+func TestVersion(t *testing.T) {
+	// the release workflow compares this with the tag; the update check in the UI compares it with GitHub's latest release
+	if !regexp.MustCompile(`^\d+\.\d+\.\d+$`).MatchString(version) {
+		t.Fatalf("VERSION %q is not MAJOR.MINOR.PATCH", version)
+	}
+	_, h, _, c := setup(t)
+	if rec := do(h, c, "GET", "/api/meta", nil, ""); !strings.Contains(rec.Body.String(), `"version":"`+version+`"`) {
+		t.Errorf("meta without version: %s", rec.Body)
 	}
 }
