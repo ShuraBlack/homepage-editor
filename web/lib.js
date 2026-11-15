@@ -3,14 +3,15 @@ import { html, render, useState, useEffect, useRef, useMemo } from './vendor/pre
 import * as YAML from './vendor/yaml/index.js';
 import { ICONS } from './vendor/lucide.js';
 import { t, tServer, lang } from './i18n.js';
+import { lineDiff } from './diff.js';
 export { html, render, useState, useEffect, useRef, useMemo, YAML, t };
 
 // ---------------- UI icons (Lucide) ----------------
 export const I = ({ n, s = 16 }) => html`<svg class="i" width=${s} height=${s} viewBox="0 0 24 24" fill="none" stroke="currentColor"
   stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" dangerouslySetInnerHTML=${{ __html: ICONS[n] }}></svg>`;
 
-export const IconBtn = ({ n, label, onClick, cls = '' }) => html`<button type="button" class=${'btn icon-btn ' + cls} title=${label}
-  aria-label=${label} onClick=${onClick}><${I} n=${n} /></button>`;
+export const IconBtn = ({ n, label, onClick, cls = '', ...rest }) => html`<button type="button" class=${'btn icon-btn ' + cls} title=${label}
+  aria-label=${label} onClick=${onClick} ...${rest}><${I} n=${n} /></button>`;
 
 /** Modal layout: fixed header and footer, only the content scrolls. */
 export function Dlg({ title, onClose, onSubmit, footer, children }) {
@@ -74,6 +75,28 @@ export function applyAccent(hex) {
   s.setProperty('--accent', hex);
   s.setProperty('--accent-ink', 0.299 * r + 0.587 * g + 0.114 * b > 150 ? '#14110a' : '#ffffff'); // same rule as the server
 }
+
+// ---------------- browser-local preferences (like the language: per device, not stored on the server) ----------------
+// theme: dark|light|system · density: normal|compact · start: start page · afterSave: ''|'open' (open/reload Homepage)
+const PREFS_KEY = 'hpe-prefs'; // also read by login.html (theme)
+export const prefs = (() => { try { return JSON.parse(localStorage.getItem(PREFS_KEY)) || {}; } catch { return {}; } })();
+const darkMq = matchMedia('(prefers-color-scheme: dark)');
+function applyPrefs() {
+  const el = document.documentElement;
+  el.dataset.theme = prefs.theme === 'light' || (prefs.theme === 'system' && !darkMq.matches) ? 'light' : 'dark';
+  el.dataset.density = prefs.density === 'compact' ? 'compact' : 'normal';
+}
+darkMq.addEventListener('change', applyPrefs);
+applyPrefs();
+export function setPref(k, v) {
+  prefs[k] = v;
+  localStorage.setItem(PREFS_KEY, JSON.stringify(prefs));
+  applyPrefs();
+}
+
+/** Open Homepage in its own named tab; a second call reloads that tab instead of opening another one. */
+export const openHomepage = () => meta.homepageUrl && window.open(meta.homepageUrl, 'hpe-homepage');
+const afterSaveHook = () => { if (prefs.afterSave === 'open') openHomepage(); };
 
 async function req(method, url, body) {
   const r = await fetch(url, { method, body });
@@ -215,7 +238,14 @@ export function containsNode(node, target) {
 
 // ---------------- dirty tracking (warn before leaving with unsaved changes) ----------------
 let dirty = false;
-export const setDirty = (d) => { dirty = d; };
+const baseTitle = document.title;
+/** Also marks the browser tab ("• …") and tells the sidebar (event "hpe-dirty"). */
+export const setDirty = (d) => {
+  if (d === dirty) return;
+  dirty = d;
+  document.title = (d ? '• ' : '') + baseTitle;
+  dispatchEvent(new Event('hpe-dirty'));
+};
 export const isDirty = () => dirty;
 addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); });
 
@@ -223,7 +253,7 @@ addEventListener('beforeunload', (e) => { if (dirty) e.preventDefault(); });
 export async function go(hash) {
   if (location.hash === hash) return;
   if (dirty && !(await confirmDlg(t('Ungespeicherte Änderungen verwerfen?'), t('Die Änderungen gehen verloren.'), t('Verwerfen'), true))) return;
-  dirty = false;
+  setDirty(false);
   location.hash = hash;
 }
 
@@ -231,11 +261,19 @@ export async function go(hash) {
 export function toast(msg, kind = 'ok') {
   let box = document.querySelector('.toasts');
   if (!box) { box = document.createElement('div'); box.className = 'toasts'; box.setAttribute('role', 'status'); document.body.append(box); }
-  const t = document.createElement('div');
-  t.className = `toast ${kind}`;
-  t.textContent = msg;
-  box.append(t);
-  setTimeout(() => t.remove(), kind === 'err' ? 6000 : 2500);
+  const el = document.createElement('div');
+  el.className = `toast ${kind}`;
+  el.textContent = msg;
+  el.title = t('Klicken zum Schließen');
+  el.onclick = () => el.remove();
+  const x = document.createElement('button');
+  x.type = 'button';
+  x.className = 'toast-x';
+  x.setAttribute('aria-label', t('Schließen'));
+  x.textContent = '×';
+  el.append(x);
+  box.append(el);
+  if (kind !== 'err') setTimeout(() => el.remove(), 2500); // errors stay until closed, they are often long
 }
 
 // ---------------- modals ----------------
@@ -279,7 +317,8 @@ function Secret({ value, onInput, placeholder, id }) {
 export function ImageInput({ value, onValue, root, id, placeholder }) {
   const pick = async () => {
     const p = await pickImage(root);
-    if (p) onValue(publicUrl(root, p));
+    if (p?.icon) onValue(p.icon); // catalog icon: Homepage resolves the bare name itself
+    else if (p) onValue(publicUrl(root, p));
   };
   return html`<div class="row-inp">
     <span class="prev">${value ? html`<${Icon} icon=${value} size=${24} />` : null}</span>
@@ -425,6 +464,7 @@ export function CodeEditor({ value, mode, onChange, onSave, errorLine }) {
   useEffect(() => { if (cm.current && value !== cm.current.getValue()) cm.current.setValue(value); }, [value]);
   useEffect(() => {
     const c = cm.current;
+    c?.refresh(); // the error bar above changed the editor height
     if (!c || errorLine == null) return;
     c.addLineClass(errorLine, 'background', 'cm-error-line');
     c.scrollIntoView({ line: errorLine, ch: 0 }, 100);
@@ -452,16 +492,59 @@ const yamlErr = (doc) => {
   return e ? { msg: e.message.split('\n')[0], line: e.linePos?.[0]?.line ? e.linePos[0].line - 1 : null } : null;
 };
 
+// ---------------- compare: unsaved changes and the last saved version (<file>.bak, written by the server) ----------------
+function DiffView({ before, after }) {
+  const d = lineDiff(before, after);
+  if (!d.some(([o]) => o !== ' ')) return html`<p class="muted">${t('Keine Unterschiede.')}</p>`;
+  const near = d.map((_, i) => d.slice(Math.max(0, i - 3), i + 4).some(([o]) => o !== ' ')); // 3 lines of context
+  const rows = [];
+  let skip = 0;
+  const flush = () => { if (skip) rows.push(html`<div class="diff-skip">${t('… {n} unveränderte Zeilen', { n: skip })}</div>`); skip = 0; };
+  d.forEach(([o, l], i) => {
+    if (!near[i]) { skip++; return; }
+    flush();
+    rows.push(html`<div class=${o === '+' ? 'diff-add' : o === '-' ? 'diff-del' : ''}><span>${o}</span>${l}</div>`);
+  });
+  flush();
+  return html`<pre class="diff">${rows}</pre>`;
+}
+
+/** Resolves with {restore: text} when the .bak version should be loaded into the editor, else null. */
+function CompareDialog({ root, file, saved, current, extra, close }) {
+  const unsaved = current !== saved || !!extra;
+  const [tab, setTab] = useState(unsaved ? 'changes' : 'bak');
+  const [bak, setBak] = useState(undefined);
+  useEffect(() => { api.readOr(root, file + '.bak', null).then(setBak, (e) => { toast(e.message, 'err'); setBak(null); }); }, []);
+  const tabBtn = (id, label) => html`<button type="button" role="tab" aria-selected=${tab === id} class=${'tab' + (tab === id ? ' active' : '')}
+    onClick=${() => setTab(id)}>${label}</button>`;
+  return html`<${Dlg} title=${t('Vergleichen: {file}', { file: file.split('/').pop() })} onClose=${() => close(null)}
+    footer=${tab === 'bak' && bak != null && html`<span class="muted small grow">${t('Lädt die letzte Version in den Editor – gespeichert wird erst mit „Speichern“.')}</span>
+      <button type="button" class="btn primary" onClick=${() => close({ restore: bak })}><${I} n="history" /> ${t('Letzte Version übernehmen')}</button>`}>
+    <div class="tabs" role="tablist">${tabBtn('changes', t('Ungespeicherte Änderungen'))}${tabBtn('bak', t('Letzte Version (.bak)'))}</div>
+    ${tab === 'changes'
+      ? html`${!unsaved ? html`<p class="muted">${t('Keine ungespeicherten Änderungen.')}</p>`
+          : current !== saved && html`<${DiffView} before=${saved} after=${current} />`}
+        ${extra && html`<h4>${extra.file}</h4><${DiffView} before=${extra.before} after=${extra.after} />`}`
+      : bak === undefined ? html`<p class="muted">${t('Lade…')}</p>`
+      : bak === null ? html`<p class="muted">${t('Keine frühere Version vorhanden – sie entsteht beim ersten Speichern.')}</p>`
+      : html`<p class="muted small">${t('Rot: nur in der letzten Version, grün: nur in der gespeicherten Datei.')}</p>
+        <${DiffView} before=${bak} after=${saved} />`}
+  <//>`;
+}
+const compareDlg = (props) => openModal(CompareDialog, props, 'wide');
+
 // ---------------- plain file editor (fallback for everything without a visual editor) ----------------
 export function FileEditor({ root, path }) {
   const [text, setText] = useState(null);
+  const [ver, setVer] = useState(0);
   const [err, setErr] = useState(null);
   const [isDirtyState, setDirtyState] = useState(false);
   const cur = useRef('');
+  const saved = useRef('');
   const mode = cmMode(path);
   useEffect(() => {
     setText(null);
-    api.readOr(root, path, '').then((t) => { cur.current = t; setText(t); setDirtyState(false); setDirty(false); })
+    api.readOr(root, path, '').then((t) => { cur.current = saved.current = t; setText(t); setDirtyState(false); setDirty(false); })
       .catch((e) => toast(e.message, 'err'));
     return () => setDirty(false);
   }, [root, path]);
@@ -473,22 +556,33 @@ export function FileEditor({ root, path }) {
     }
     try {
       await api.write(root, path, cur.current);
+      saved.current = cur.current;
       setDirtyState(false); setDirty(false);
       toast(t('Gespeichert'));
+      if (root === 'config') afterSaveHook();
     } catch (e) { toast(e.message, 'err'); }
+  };
+  const compare = async () => {
+    const res = await compareDlg({ root, file: path, saved: saved.current, current: cur.current });
+    if (res?.restore == null) return;
+    cur.current = res.restore;
+    setText(res.restore);
+    setVer((v) => v + 1); // fresh editor, even if the text equals the last loaded one
+    setDirtyState(true); setDirty(true);
   };
   useSaveKey(save);
   if (text === null) return html`<div class="muted pad">${t('Lade…')}</div>`;
-  return html`<div class="view">
+  return html`<div class="view code-view">
     <header class="view-head">
       <div><h1>${path.split('/').pop()}</h1><div class="muted small">${root}/${path}</div></div>
       <div class="actions">
         ${isDirtyState && html`<span class="badge">${t('ungespeichert')}</span>`}
+        <${IconBtn} n="git-compare" label=${t('Vergleichen / letzte Version')} onClick=${compare} />
         <button class="btn primary" onClick=${save}><${I} n="save" /> ${t('Speichern')}</button>
       </div>
     </header>
     ${err && html`<div class="alert">${yamlErrText(err)}</div>`}
-    <${CodeEditor} value=${text} mode=${mode} errorLine=${err?.line} onSave=${save}
+    <${CodeEditor} key=${ver} value=${text} mode=${mode} errorLine=${err?.line} onSave=${save}
       onChange=${(t) => { cur.current = t; if (!isDirtyState) { setDirtyState(true); setDirty(true); } }} />
   </div>`;
 }
@@ -497,22 +591,29 @@ export function FileEditor({ root, path }) {
 /**
  * Loads config/<file>, parses it and renders form(doc, touch). The code editor is only the fallback:
  * opened via "Als Code bearbeiten" or automatically when the YAML cannot be parsed.
+ * `extra` adds a second file edited alongside (services view: layout in settings.yaml):
+ * { snap() → string, restore(string), pending(text) → {file, before, after} | null }.
  */
-export function YamlView({ file, title, subtitle, empty = '', form, actions, afterSave, onLoad }) {
+export function YamlView({ file, title, subtitle, empty = '', form, actions, afterSave, onLoad, extra }) {
   const [st, setSt] = useState({ loading: true });
   const docRef = useRef(null);
   const textRef = useRef('');
   const origRef = useRef('');
   const [, setTick] = useState(0);
+  // undo history of form edits: snapshots as text (cheap to compare); `base` = what is saved on disk
+  const hist = useRef({ past: [], future: [], prev: '', base: '', at: 0 });
+  const snap = () => JSON.stringify([docRef.current ? docRef.current.toString({ lineWidth: 0 }) : '', extra?.snap() ?? '']);
+  const resetHist = (base) => { const s = snap(); hist.current = { past: [], future: [], prev: s, base: base ?? s, at: 0 }; };
 
   const load = async () => {
-    onLoad?.(); // e.g. reload a second file edited alongside (services view: settings.yaml)
     try {
+      await onLoad?.(); // e.g. reload a second file edited alongside (services view: settings.yaml)
       const text = await api.readOr('config', file, empty);
       textRef.current = origRef.current = text;
       const doc = parseDoc(text);
       const err = yamlErr(doc);
       docRef.current = err ? null : doc;
+      resetHist();
       setSt({ mode: err ? 'code' : 'form', err, dirty: false, ver: Date.now() });
       setDirty(false);
     } catch (e) { setSt({ fatal: e.message }); }
@@ -520,7 +621,49 @@ export function YamlView({ file, title, subtitle, empty = '', form, actions, aft
   useEffect(() => { load(); return () => setDirty(false); }, [file]);
 
   // touch(false) resets the dirty flag, e.g. after a cancelled dialog restored the previous state.
-  const touch = (d = true) => { setSt((s) => (s.dirty === d ? s : { ...s, dirty: d })); setDirty(d); setTick((t) => t + 1); };
+  const touch = (d = true) => {
+    const h = hist.current;
+    // edits inside a dialog become one step when it closes (its caller touches again)
+    if (st.mode === 'form' && !document.querySelector('dialog[open]')) {
+      const s = snap();
+      if (s !== h.prev) {
+        if (Date.now() - h.at > 1000) h.past.push(h.prev); // a burst of typing is one step
+        if (h.past.length > 100) h.past.shift();
+        h.prev = s;
+        h.future = [];
+        h.at = Date.now();
+      }
+      if (s === h.base) d = false;
+    }
+    setSt((s) => (s.dirty === d ? s : { ...s, dirty: d })); setDirty(d); setTick((t) => t + 1);
+  };
+  const applySnap = (s) => {
+    const [main, ex] = JSON.parse(s);
+    docRef.current = parseDoc(main);
+    if (ex) extra?.restore(ex);
+    const h = hist.current;
+    h.prev = s;
+    h.at = 0;
+    const d = s !== h.base;
+    setSt((x) => ({ ...x, dirty: d })); setDirty(d); setTick((n) => n + 1);
+  };
+  const undo = () => { const h = hist.current; if (st.mode !== 'form' || !h.past.length) return; h.future.push(h.prev); applySnap(h.past.pop()); };
+  const redo = () => { const h = hist.current; if (st.mode !== 'form' || !h.future.length) return; h.past.push(h.prev); applySnap(h.future.pop()); };
+  const keys = useRef();
+  keys.current = { undo, redo };
+  useEffect(() => {
+    const h = (e) => {
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const k = e.key.toLowerCase();
+      if (k !== 'z' && k !== 'y') return;
+      // text fields and the code editor keep their own undo
+      if (e.target.closest?.('input, textarea, select, [contenteditable], .CodeMirror') || document.querySelector('dialog[open]')) return;
+      e.preventDefault();
+      (k === 'y' || e.shiftKey ? keys.current.redo : keys.current.undo)();
+    };
+    addEventListener('keydown', h);
+    return () => removeEventListener('keydown', h);
+  }, []);
 
   const toCode = () => {
     if (st.dirty && docRef.current) textRef.current = stringifyDoc(docRef.current, origRef.current);
@@ -531,10 +674,12 @@ export function YamlView({ file, title, subtitle, empty = '', form, actions, aft
     const err = yamlErr(doc);
     if (err) { setSt((s) => ({ ...s, err })); return toast(t('YAML-Fehler: {msg}', { msg: err.msg }), 'err'); }
     docRef.current = doc;
+    resetHist(hist.current.base);
     setSt((s) => ({ ...s, mode: 'form', err: null }));
   };
+  const currentText = () => (st.mode === 'code' ? textRef.current : st.dirty ? stringifyDoc(docRef.current, origRef.current) : origRef.current);
   const save = async () => {
-    const text = st.mode === 'form' ? stringifyDoc(docRef.current, origRef.current) : textRef.current;
+    const text = currentText();
     const err = yamlErr(parseDoc(text));
     if (err) {
       // Never write broken YAML; show it in the code editor instead.
@@ -551,17 +696,37 @@ export function YamlView({ file, title, subtitle, empty = '', form, actions, aft
       toast(t('{file} gespeichert', { file }));
     } catch (e) { return toast(e.message, 'err'); }
     await afterSave?.(text);
+    hist.current.base = hist.current.prev = snap(); // undo after saving leads back to "unsaved"
+    afterSaveHook();
   };
   useSaveKey(save);
+  /** Load a text (the .bak version) as unsaved change; in the form it is one undo step. */
+  const restoreText = (text) => {
+    textRef.current = text;
+    const doc = parseDoc(text);
+    const err = yamlErr(doc);
+    if (err || st.mode === 'code') { setSt((s) => ({ ...s, mode: 'code', err, dirty: true, ver: Date.now() })); setDirty(true); return; }
+    docRef.current = doc;
+    touch();
+  };
+  const compare = async () => {
+    const cur = currentText();
+    const res = await compareDlg({ root: 'config', file, saved: origRef.current, current: cur, extra: extra?.pending(cur) });
+    if (res?.restore != null) restoreText(res.restore);
+  };
 
   if (st.fatal) return html`<div class="alert pad">${st.fatal}</div>`;
   if (st.loading) return html`<div class="muted pad">${t('Lade…')}</div>`;
-  return html`<div class="view">
+  const h = hist.current;
+  return html`<div class=${'view' + (st.mode === 'code' ? ' code-view' : '')}>
     <header class="view-head">
       <div><h1>${title}</h1><div class="muted small">${subtitle || 'config/' + file}</div></div>
       <div class="actions">
         ${st.dirty && html`<span class="badge">${t('ungespeichert')}</span>`}
         ${st.mode === 'form' && actions}
+        ${st.mode === 'form' && html`<${IconBtn} n="undo-2" label=${t('Rückgängig (Strg+Z)')} disabled=${!h.past.length} onClick=${undo} />
+          <${IconBtn} n="redo-2" label=${t('Wiederholen (Strg+Y)')} disabled=${!h.future.length} onClick=${redo} />`}
+        <${IconBtn} n="git-compare" label=${t('Vergleichen / letzte Version')} onClick=${compare} />
         ${st.mode === 'form'
           ? html`<button class="btn ghost" onClick=${toCode}><${I} n="code-xml" /> ${t('Als Code bearbeiten')}</button>`
           : html`<button class="btn ghost" onClick=${toForm}><${I} n="layout-grid" /> ${t('Zurück zum visuellen Editor')}</button>`}
@@ -578,13 +743,50 @@ export function YamlView({ file, title, subtitle, empty = '', form, actions, aft
   </div>`;
 }
 
-// ---------------- image picker (uses the file browser in pick mode) ----------------
+// ---------------- image picker (own files via the file browser in pick mode, or the Dashboard Icons catalog) ----------------
 let FileBrowserRef = null;
 export const registerFileBrowser = (c) => { FileBrowserRef = c; };
 
+const CATALOG_URL = 'https://cdn.jsdelivr.net/gh/homarr-labs/dashboard-icons/tree.json';
+let catalog = null; // icon names like "sonarr.png", loaded once per page
+
+function IconCatalog({ pick }) {
+  const [list, setList] = useState(catalog);
+  const [q, setQ] = useState('');
+  useEffect(() => {
+    if (catalog) return;
+    fetch(CATALOG_URL).then((r) => { if (!r.ok) throw new Error(r.statusText); return r.json(); }).then((tree) => {
+      // PNG is what Homepage's docs use; SVG only where no PNG exists
+      const png = new Set((tree.png || []).map((f) => f.replace(/\.png$/, '')));
+      const svgOnly = (tree.svg || []).filter((f) => !png.has(f.replace(/\.svg$/, '')));
+      catalog = [...(tree.png || []), ...svgOnly].sort();
+      setList(catalog);
+    }).catch((e) => { toast(t('Icon-Katalog nicht erreichbar: {msg}', { msg: e.message }), 'err'); setList([]); });
+  }, []);
+  const s = q.trim().toLowerCase();
+  const hits = (list || []).filter((n) => !s || n.includes(s));
+  return html`<div class="stack">
+    <input class="inp" type="search" autofocus placeholder=${t('Icon suchen, z. B. sonarr')} aria-label=${t('Icon suchen')} value=${q}
+      onInput=${(e) => setQ(e.target.value)} />
+    ${list === null ? html`<p class="muted">${t('Lade Katalog…')}</p>` : html`<div class="gallery">
+      ${hits.slice(0, 120).map((n) => html`<div class="tile" key=${n}><button type="button" class="tile-main" title=${n} onClick=${() => pick(n)}>
+        <img src=${iconSrc(n)} alt="" loading="lazy" /><span class="tile-name">${n.replace(/\.(png|svg)$/, '')}</span></button></div>`)}
+      </div>
+      <p class="muted small">${hits.length > 120 ? t('{n} Treffer – die ersten 120 werden gezeigt, bitte genauer suchen.', { n: hits.length }) : t('{n} Treffer', { n: hits.length })}
+${' · ' + t('Quelle: Dashboard Icons (homarr-labs)')}</p>`}
+  </div>`;
+}
+
+/** Resolves with a path inside `root`, with {icon: name} for a catalog icon, or null. */
 function PickDialog({ root, close }) {
+  const [tab, setTab] = useState('own');
+  const tabBtn = (id, label) => html`<button type="button" role="tab" aria-selected=${tab === id} class=${'tab' + (tab === id ? ' active' : '')}
+    onClick=${() => setTab(id)}>${label}</button>`;
   return html`<${Dlg} title=${root === 'icons' ? t('Icon auswählen') : t('Hintergrund auswählen')} onClose=${() => close(null)}>
-    <${FileBrowserRef} root=${root} grid=${true} pick=${(p) => close(p)} embedded=${true} />
+    ${root === 'icons' && html`<div class="tabs" role="tablist">${tabBtn('own', t('Eigene Icons'))}${tabBtn('catalog', t('Dashboard Icons'))}</div>`}
+    ${tab === 'own'
+      ? html`<${FileBrowserRef} root=${root} grid=${true} pick=${(p) => close(p)} embedded=${true} />`
+      : html`<${IconCatalog} pick=${(n) => close({ icon: n })} />`}
   <//>`;
 }
 export const pickImage = (root) => openModal(PickDialog, { root }, 'wide');

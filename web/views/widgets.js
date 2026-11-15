@@ -47,6 +47,10 @@ export const INFO_WIDGETS = {
 };
 
 let drag = null;
+// Stable keys per YAML node, so open/closed state and focus follow a widget when it is moved.
+const ids = new WeakMap();
+let nextId = 0;
+const nodeKey = (node) => { if (!ids.has(node)) ids.set(node, ++nextId); return ids.get(node); };
 
 export function Widgets() {
   return html`<${YamlView} file="widgets.yaml" title=${t('Info-Widgets')} empty="[]"
@@ -65,9 +69,9 @@ function WidgetsForm({ doc, touch }) {
   };
   return html`<div>
     <div class="toolbar"><button class="btn" onClick=${add}><${I} n="plus" /> ${t('Widget')}</button>
-      <span class="muted small">${t('Reihenfolge per Ziehen am Griff ändern.')}</span></div>
+      <span class="muted small">${t('Reihenfolge per Ziehen am Griff oder mit den Pfeilen ändern.')}</span></div>
     <div class="stack">
-      ${seq.items.map((item, i) => html`<${WidgetCard} key=${i} doc=${doc} seq=${seq} idx=${i} touch=${touch} />`)}
+      ${seq.items.map((item, i) => html`<${WidgetCard} key=${nodeKey(item)} doc=${doc} seq=${seq} idx=${i} touch=${touch} />`)}
       ${!seq.items.length && html`<p class="muted">${t('Noch keine Widgets.')}</p>`}
     </div>
   </div>`;
@@ -80,18 +84,30 @@ function WidgetCard({ doc, seq, idx, touch }) {
   const fields = INFO_WIDGETS[s.name] || [];
   const map = isMap(s.value) ? s.value : null;
   const ensure = () => { s.pair.value = doc.createNode({}); return s.pair.value; };
+  const move = (d) => {
+    const id = nodeKey(seq.items[idx]);
+    moveItem(seq, idx, seq, idx + (d > 0 ? 2 : -1)); // moveItem inserts before the target index
+    touch();
+    // keep keyboard focus on the moved widget; at the first/last place the other arrow is the one left enabled
+    requestAnimationFrame(() => {
+      const btns = [...document.querySelectorAll(`#wc-${id} [data-move]:not([disabled])`)];
+      (btns.find((b) => b.dataset.move === String(d)) || btns[0])?.focus();
+    });
+  };
   const remove = async () => { if (await confirmDlg(t('Widget „{name}“ entfernen?', { name: s.name }), '', t('Entfernen'), true)) { seq.items.splice(idx, 1); touch(); } };
   const dnd = {
     onDragOver: (e) => { if (drag) { e.preventDefault(); e.currentTarget.classList.add('drop-before'); } },
     onDragLeave: (e) => e.currentTarget.classList.remove('drop-before'),
     onDrop: (e) => { e.currentTarget.classList.remove('drop-before'); if (!drag) return; moveItem(drag.seq, drag.idx, seq, idx); drag = null; touch(); },
   };
-  return html`<section class="card" ...${dnd}>
+  return html`<section class="card" id=${'wc-' + nodeKey(seq.items[idx])} ...${dnd}>
     <header class="card-head" draggable="true" onDragStart=${(e) => { drag = { seq, idx }; e.dataTransfer.setData('text/plain', ''); }} onDragEnd=${() => { drag = null; }}>
       <span class="handle"><${I} n="grip-vertical" /></span>
       <button class="link-btn" aria-expanded=${open} onClick=${() => setOpen(!open)}><${I} n=${open ? 'chevron-down' : 'chevron-right'} /> <strong>${s.name}</strong></button>
       <a class="small" target="_blank" rel="noopener" href=${`https://gethomepage.dev/widgets/info/${s.name}/`}>${t('Doku')} ↗</a>
       <span class="spacer"></span>
+      <${IconBtn} n="arrow-up" label=${t('Widget {name} nach oben', { name: s.name })} data-move="-1" disabled=${idx === 0} onClick=${() => move(-1)} />
+      <${IconBtn} n="arrow-down" label=${t('Widget {name} nach unten', { name: s.name })} data-move="1" disabled=${idx === seq.items.length - 1} onClick=${() => move(1)} />
       <${IconBtn} n="trash-2" cls="del" label=${t('Widget {name} entfernen', { name: s.name })} onClick=${remove} />
     </header>
     ${open && html`<div class="card-body">

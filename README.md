@@ -15,15 +15,21 @@ It runs as one extra container next to your existing Homepage container and work
   - Drag & drop between groups. The target container is outlined and named while dragging; dropping onto a tab moves the item into that group.
   - Service dialog with all common fields, icon picker, widget editor (type suggestions + link to the widget docs) and a generic key/value editor for everything else.
   - Group dialog for name, parent group and all layout options (`style`, `columns`, `header`, `tab`, `icon`, …). The layout is written to `settings.yaml`.
+  - Search field: matching services are highlighted, every tab shows its number of hits. Duplicate a service from its dialog; the ↗ on a card opens the service itself.
 <img width="1354" height="720" alt="Image import" src="https://github.com/user-attachments/assets/3a48617a-a662-490e-ac7e-a87a8cb835e7" />
 
 - **Keeps `settings.yaml` → `layout` in sync.** Homepage orders and nests groups by `layout` when it exists. When you save the services, the layout gets the same structure: moved subgroups move along, every group gets an entry, existing options and comments are kept.
-- **Visual editors** for `widgets.yaml`, `settings.yaml` (incl. background, layout, quick launch) and `proxmox.yaml`.
+- **Visual editors** for `widgets.yaml`, `bookmarks.yaml`, `settings.yaml` (incl. background, layout, quick launch), `proxmox.yaml` and `docker.yaml`.
+- **Undo / redo** (Ctrl+Z / Ctrl+Y) in all visual editors.
+- **Compare before saving:** a diff of the unsaved changes (for services incl. the layout in `settings.yaml`) and of the last saved version (`<file>.bak`), which can be loaded back.
+- **Quick search** (Ctrl+K) for pages, services and config files.
+- **Icon picker** with your own icons and a searchable [Dashboard Icons](https://github.com/homarr-labs/dashboard-icons) catalog (loaded from jsDelivr when opened).
 - **Code editor** (CodeMirror) for `custom.css`, `custom.js` and every other file, with YAML validation – broken YAML is never saved.
 - **File manager** for icons and backgrounds: upload (drag & drop), rename, delete, preview, copy the public path. Uploads to the image folders are checked to really be images.
 - **Safe writes:** every save is atomic (temp file + rename) and keeps the previous version as `<file>.bak`.
 - **Comments and unknown keys survive** visual editing.
 - **Editor settings in the UI:** accent colour, Homepage URL, public paths of the image folders, sign out other sessions.
+  Per browser: dark / light / system colour scheme, compact density, start page, and opening (reloading) Homepage after every save.
 - **Languages:** English, German, French, Italian. The choice is stored in the browser.
 <img width="1354" height="720" alt="Themes" src="https://github.com/user-attachments/assets/2825bf32-b582-4fd7-9c08-ff7d33fcf614" />
 
@@ -109,6 +115,13 @@ Open `http://<host>:3001` and sign in.
 
 **Updating:** `git -C editor pull && docker compose up -d --build homepage-editor`.
 
+**Prebuilt image instead of building:** skip step 1 and replace `build: ./editor` with
+`image: ghcr.io/shurablack/homepage-editor:1` (amd64 + arm64; `:1` follows all 1.x releases, `:1.0.0` pins one).
+Update with `docker compose pull homepage-editor && docker compose up -d homepage-editor`.
+
+**Update notice (opt-in):** under *Editor → Settings → Version & updates* the editor can check GitHub once a day for a newer release
+and then shows "Update available" in the sidebar. It is off by default; the request goes from your browser to `api.github.com`.
+
 ### File ownership
 
 The container runs as root by default, so it can write files owned by any user. If you'd rather run it unprivileged, add `user: "UID:GID"` matching the owner of `config/` and `images/` – otherwise saving will fail with "permission denied".
@@ -162,15 +175,28 @@ The frontend has no build step. It is embedded with `go:embed`, so restart the s
 
 ```
 main.go            HTTP server: auth, sessions, state file, file API
+VERSION            release number (semver)
 main_test.go       API tests (auth, path traversal, uploads, locking, sessions)
+tests/             frontend unit tests, run with `node --test`
 web/
   index.html       app shell          login.html   sign-in page
   app.js           routing + sidebar  lib.js       API client, YAML helpers, form components, editors
   i18n.js          translation core   i18n-dict.js translations
-  views/           services, widgets, settings, proxmox, files, editor settings
+  diff.js          line diff for the compare dialog
+  update.js        opt-in update check against GitHub releases
+  views/           services, widgets, bookmarks, settings, servers (proxmox + docker), files, palette (Ctrl+K), editor settings
   vendor/          Preact + htm, eemeli/yaml, CodeMirror 5, Lucide icons
-Dockerfile         multi-stage build → distroless image
+Dockerfile         multi-stage build → distroless image (cross-compiles for multi-arch)
+.github/workflows/release.yml   tag v* → tests, ghcr.io image, GitHub release
 ```
+
+### Versioning and releases
+
+Releases follow [semantic versioning](https://semver.org). The version lives in the `VERSION` file (embedded into the binary, shown in the sidebar and returned by `/api/meta`).
+
+To release: bump `VERSION`, commit, then push a matching tag – `git tag v1.1.0 && git push origin v1.1.0`.
+The [release workflow](.github/workflows/release.yml) checks that tag and `VERSION` match, runs the Go and Node tests,
+pushes the image to `ghcr.io/shurablack/homepage-editor` (`1.1.0`, `1.1`, `1`, `latest`) and creates the GitHub release with generated notes.
 
 ### API
 

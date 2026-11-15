@@ -68,36 +68,50 @@ function useSettingsDoc() {
   const [st, setSt] = useState({});
   const ref = useRef(st);
   ref.current = st;
+  const set = (v) => { ref.current = v; setSt(v); }; // ref first: YamlView takes its undo snapshot right after reload()
   const reload = async () => {
     try {
       const src = await api.readOr('config', 'settings.yaml', '');
       const doc = parseDoc(src);
       if (doc.errors.length || (doc.contents != null && !isMap(doc.contents))) {
-        return setSt({ err: t('settings.yaml enthält Fehler – Layout ist hier nicht bearbeitbar. Bitte unter „Einstellungen“ korrigieren.') });
+        return set({ err: t('settings.yaml enthält Fehler – Layout ist hier nicht bearbeitbar. Bitte unter „Einstellungen“ korrigieren.') });
       }
-      setSt({ doc, src, base: stringifyDoc(doc, src) });
-    } catch (e) { setSt({ err: e.message }); }
+      set({ doc, src, base: stringifyDoc(doc, src) });
+    } catch (e) { set({ err: e.message }); }
+  };
+  /** settings.yaml as it would be written together with `servicesText`, or null without a usable settings doc. */
+  const layoutText = (servicesText) => {
+    const { doc, src } = ref.current;
+    if (!doc) return null;
+    const layout = layoutMap(doc);
+    if (layout) syncLayoutTree(doc, layout, groupTree(parseDoc(servicesText).contents));
+    return stringifyDoc(doc, src);
   };
   // after services.yaml was saved: write the layout too, if it changed
   const save = async (servicesText) => {
-    const { doc, src, base } = ref.current;
-    if (!doc) return;
-    const layout = layoutMap(doc);
-    if (layout) syncLayoutTree(doc, layout, groupTree(parseDoc(servicesText).contents));
-    const out = stringifyDoc(doc, src);
-    if (out === base) return;
+    const out = layoutText(servicesText);
+    if (out == null || out === ref.current.base) return;
     try {
       await api.write('config', 'settings.yaml', out);
-      setSt({ doc, src: out, base: out });
+      set({ doc: ref.current.doc, src: out, base: out });
       toast(t('Layout in settings.yaml gespeichert'));
     } catch (e) { toast(t('settings.yaml nicht gespeichert: {msg}', { msg: e.message }), 'err'); }
   };
-  return { ...st, reload, save };
+  // second file for YamlView: undo snapshots and the compare dialog
+  const extra = {
+    snap: () => ref.current.doc?.toString({ lineWidth: 0 }) ?? '',
+    restore: (text) => { if (ref.current.doc) ref.current.doc.contents = parseDoc(text).contents; },
+    pending: (servicesText) => {
+      const out = layoutText(servicesText);
+      return out != null && out !== ref.current.base ? { file: 'settings.yaml', before: ref.current.src, after: out } : null;
+    },
+  };
+  return { ...st, reload, save, extra };
 }
 
 export function Services() {
   const lay = useSettingsDoc();
-  return html`<${YamlView} file="services.yaml" title=${t('Services')} empty="[]" onLoad=${lay.reload} afterSave=${lay.save}
+  return html`<${YamlView} file="services.yaml" title=${t('Services')} empty="[]" onLoad=${lay.reload} afterSave=${lay.save} extra=${lay.extra}
     form=${(doc, touch) => html`<${ServicesForm} doc=${doc} touch=${touch} lay=${lay} />`} />`;
 }
 
@@ -174,17 +188,56 @@ function dropProps(ctx, guard, getSeq, idx) {
   };
 }
 
+// ---------- search: matching services are outlined, the rest dimmed; tabs show their number of hits ----------
+
+const svcHit = (q, s) => {
+  const m = isMap(s.value) ? s.value : null;
+  return [s.name, getVal(m, 'description'), getVal(m, 'href')].some((v) => typeof v === 'string' && v.toLowerCase().includes(q));
+};
+/** Matching services in `items` (list entries at `depth`), counted through all subgroups. */
+function countHits(q, items, depth) {
+  let n = 0;
+  for (const it of items) {
+    const s = single(it);
+    if (!s) continue;
+    n += isGroupNode(it, depth) ? countHits(q, isSeq(s.value) ? s.value.items : [], depth + 1) : svcHit(q, s) ? 1 : 0;
+  }
+  return n;
+}
+
+// The quick search (Ctrl+K) asks for a service: picked up when the form mounts, or via event when it is already shown.
+let pendingQuery = '';
+const takeQuery = () => { const q = pendingQuery; pendingQuery = ''; return q; };
+export function searchServices(q) { pendingQuery = q; dispatchEvent(new Event('hpe-search')); }
+
 // ---------- page ----------
 
 function ServicesForm({ doc, touch, lay }) {
   const [active, setActive] = useState(0);
+  const [query, setQuery] = useState('');
+  const searchRef = useRef(null); // set below, after the early return for broken files
+  useEffect(() => {
+    const h = () => { const q = takeQuery(); if (q) searchRef.current?.(q); };
+    h();
+    addEventListener('hpe-search', h);
+    return () => removeEventListener('hpe-search', h);
+  }, []);
   if (doc.contents == null) doc.contents = doc.createNode([]);
   if (!isSeq(doc.contents)) return html`<div class="alert">${t('services.yaml ist keine Liste von Gruppen. Bitte „Als Code bearbeiten“ nutzen.')}</div>`;
   const top = doc.contents.items;
   const cur = Math.max(0, Math.min(active, top.length - 1));
   // every change re-mirrors the group tree into the layout, so group settings always sit at the right place
   const tick = (d) => { const l = layoutMap(lay.doc); if (l) syncLayoutTree(lay.doc, l, groupTree(doc.contents)); touch(d); };
-  const ctx = { doc, touch: tick, lay, active: cur, setActive };
+  const q = query.trim().toLowerCase();
+  const hits = q ? top.map((it) => countHits(q, [it], 0)) : null;
+  const ctx = { doc, touch: tick, lay, active: cur, setActive, q, hits };
+  const search = (v) => {
+    setQuery(v);
+    const nq = v.trim().toLowerCase();
+    // current tab has no hit: jump to the first one that has
+    if (nq && !countHits(nq, [top[cur]], 0)) { const i = top.findIndex((it) => countHits(nq, [it], 0)); if (i >= 0) setActive(i); }
+  };
+  searchRef.current = search;
 
   const addTab = async () => {
     const n = await promptDlg(t('Neuer Tab'), '', t('Name der neuen obersten Gruppe (so heißt sie auch in services.yaml)'));
@@ -197,9 +250,13 @@ function ServicesForm({ doc, touch, lay }) {
 
   return html`<div class="services" onDragOver=${() => mark(null, null)}>
     ${lay.err && html`<div class="alert">${lay.err}</div>`}
-    <div class="svc-tabs" role="tablist" aria-label=${t('Oberste Gruppen')}>
-      ${top.map((_, i) => html`<${Tab} key=${i} ctx=${ctx} idx=${i} />`)}
-      <button class="chip" onClick=${addTab}><${I} n="plus" s=${12} /> ${t('Tab')}</button>
+    <div class="svc-tabs">
+      <div class="svc-tablist" role="tablist" aria-label=${t('Oberste Gruppen')}>
+        ${top.map((_, i) => html`<${Tab} key=${i} ctx=${ctx} idx=${i} />`)}
+        <button class="chip" onClick=${addTab}><${I} n="plus" s=${12} /> ${t('Tab')}</button>
+      </div>
+      <input class="inp filter" type="search" placeholder=${t('Services suchen…')} aria-label=${t('Services suchen')} value=${query}
+        onInput=${(e) => search(e.target.value)} onKeyDown=${(e) => { if (e.key === 'Escape' && query) { e.preventDefault(); setQuery(''); } }} />
     </div>
     ${top.length
       ? html`<${Item} key=${cur} ctx=${ctx} seq=${doc.contents} idx=${cur} depth=${0} path=${[]} guard=${doc.contents} panel=${true} />`
@@ -218,7 +275,8 @@ function Tab({ ctx, idx }) {
   const reorder = () => drag && drag.seq === top && drag.idx !== idx;
   const into = () => drag && drag.seq !== top && isGroupNode(item, 0) && !containsNode(drag.seq.items[drag.idx], item);
   const active = idx === ctx.active;
-  return html`<button role="tab" aria-selected=${active} class=${'svc-tab' + (active ? ' active' : '')} data-container=${name}
+  const hits = ctx.hits?.[idx];
+  return html`<button role="tab" aria-selected=${active} class=${'svc-tab' + (active ? ' active' : '') + (hits === 0 ? ' dim' : '')} data-container=${name}
     draggable="true" onDragStart=${startDrag(top, idx, true)} onDragEnd=${endDrag} onClick=${() => ctx.setActive(idx)}
     onDragEnter=${() => { if (into()) { clearTimeout(timer.current); timer.current = setTimeout(() => ctx.setActive(idx), 700); } }}
     onDragLeave=${() => clearTimeout(timer.current)}
@@ -245,7 +303,8 @@ function Tab({ ctx, idx }) {
       endDrag();
       ctx.touch();
     }}>
-    <span>${name}</span><span class="count">${count}</span>
+    <span>${name}</span>${hits == null ? html`<span class="count">${count}</span>`
+      : html`<span class=${'count' + (hits ? ' hit' : '')} title=${t('Treffer')}>${hits}</span>`}
   </button>`;
 }
 
@@ -319,7 +378,7 @@ function Group({ ctx, seq, idx, s, depth, path, guard, panel }) {
         <${IconBtn} n="settings" label=${t('Gruppe {name} bearbeiten', { name: s.name })} onClick=${() => editGroup(ctx, seq, item, path)} />
       </span>
     </header>
-    ${(open || panel) && html`<div class="group-body" data-container=${myPath.join(' › ')}>
+    ${(open || panel || ctx.q) && html`<div class="group-body" data-container=${myPath.join(' › ')}>
       ${svcs.length > 0 && html`<div class=${'svc-list ' + style} style=${grid}>
         ${svcs.map((i) => html`<${Item} key=${i} ctx=${ctx} seq=${list} idx=${i} depth=${depth + 1} path=${myPath} guard=${item} />`)}
       </div>`}
@@ -336,9 +395,11 @@ function Service({ ctx, seq, idx, s, guard }) {
   const m = isMap(s.value) ? s.value : null;
   const icon = getVal(m, 'icon');
   const widget = getVal(m, 'widget');
-  const wtype = isMap(widget) ? getVal(widget, 'type') : isSeq(getVal(m, 'widgets')) ? 'mehrere' : null;
+  const wtype = isMap(widget) ? getVal(widget, 'type') : isSeq(getVal(m, 'widgets')) ? t('mehrere') : null;
   const sub = getVal(m, 'description') || getVal(m, 'href') || '';
-  return html`<button class="svc" draggable="true" onDragStart=${startDrag(seq, idx, false)} onDragEnd=${endDrag}
+  const hit = ctx.q ? (svcHit(ctx.q, s) ? ' hit' : ' dim') : '';
+  const href = getVal(m, 'href');
+  return html`<div class="svc-wrap"><button class=${'svc' + hit} draggable="true" onDragStart=${startDrag(seq, idx, false)} onDragEnd=${endDrag}
       ...${dropProps(ctx, guard, () => seq, idx)} onClick=${() => editService(ctx, seq, seq.items[idx], false)}>
     <${Icon} icon=${typeof icon === 'string' ? icon : null} size=${32} />
     <span class="svc-text"><strong>${s.name}</strong><span class="muted small">${String(sub)}</span></span>
@@ -346,7 +407,10 @@ function Service({ ctx, seq, idx, s, guard }) {
       ${wtype && html`<span class="badge">${wtype}</span>`}
       ${getVal(m, 'proxmoxVMID') != null && html`<span class="badge">PVE ${getVal(m, 'proxmoxVMID')}</span>`}
     </span>
-  </button>`;
+  </button>
+  ${typeof href === 'string' && /^https?:\/\//.test(href) && html`<a class="svc-open" href=${href} target="_blank" rel="noopener"
+    title=${t('{name} öffnen', { name: s.name })} aria-label=${t('{name} öffnen', { name: s.name })}><${I} n="external-link" s=${13} /></a>`}
+  </div>`;
 }
 
 // ---------- group dialog: name, parent and layout (settings.yaml) in one place ----------
@@ -430,17 +494,35 @@ async function editService(ctx, seq, item, isNew) {
   const res = await openModal(ServiceDialog, { ctx, item, isNew, from: seq, move }, 'wide');
   const i = seq.items.indexOf(item);
   if (i < 0) return;
-  if (res === 'delete' || (isNew && res !== 'ok')) seq.items.splice(i, 1);
-  else if (res !== 'ok') { seq.items[i] = backup; return ctx.touch(wasDirty); }
+  const keep = res === 'ok' || res === 'duplicate'; // "Duplizieren" applies the dialog first
+  if (res === 'delete' || (isNew && !keep)) seq.items.splice(i, 1);
+  else if (!keep) { seq.items[i] = backup; return ctx.touch(wasDirty); }
   else if (move.to && move.to.seq() !== seq) {
     seq.items.splice(i, 1);
     move.to.seq().items.push(item);
-    toast(`Verschoben nach ${move.to.label}`);
+    toast(t('Verschoben nach {name}', { name: move.to.label }));
+  }
+  if (res === 'duplicate') {
+    const home = seq.items.includes(item) ? seq : move.to.seq();
+    const copy = item.clone();
+    setKey(single(copy).pair, t('{name} (Kopie)', { name: single(item).name }));
+    home.items.splice(home.items.indexOf(item) + 1, 0, copy);
+    ctx.touch();
+    return editService(ctx, home, copy, true);
   }
   ctx.touch();
 }
 
-let pveNodes = null;
+/** Top-level keys of a config file (Proxmox nodes, Docker servers) as suggestions; [] if missing or broken. */
+function useKeys(file) {
+  const [keys, setKeys] = useState([]);
+  useEffect(() => {
+    api.readOr('config', file, '').then((txt) => {
+      try { const v = YAML.parse(txt); if (v && typeof v === 'object' && !Array.isArray(v)) setKeys(Object.keys(v)); } catch { /* no suggestions */ }
+    }, () => {});
+  }, []);
+  return keys;
+}
 
 function ServiceDialog({ ctx, item, isNew, from, move, close }) {
   const { doc } = ctx;
@@ -449,15 +531,10 @@ function ServiceDialog({ ctx, item, isNew, from, move, close }) {
   const map = s.pair.value;
   const [, setT] = useState(0);
   const tick = () => { setT((x) => x + 1); ctx.touch(); };
-  const [nodes, setNodes] = useState(pveNodes || []);
+  const nodes = useKeys('proxmox.yaml');
+  const servers = useKeys('docker.yaml');
   const targets = containers(doc, null);
   const [group, setGroup] = useState(targets.find((c) => single(c.node).value === from)?.label);
-  useEffect(() => {
-    if (pveNodes) return;
-    api.readOr('config', 'proxmox.yaml', '').then((txt) => {
-      try { pveNodes = Object.keys(YAML.parse(txt) || {}); setNodes(pveNodes); } catch { /* broken proxmox.yaml: just no suggestions */ }
-    });
-  }, []);
 
   const widget = getVal(map, 'widget');
   const widgets = getVal(map, 'widgets');
@@ -468,13 +545,14 @@ function ServiceDialog({ ctx, item, isNew, from, move, close }) {
   };
   const removeKey = (k) => { const p = findPair(map, k); map.items.splice(map.items.indexOf(p), 1); tick(); };
 
-  const fields = SVC_FIELDS.map((f) => (f.k === 'proxmoxNode' ? { ...f, options: nodes } : f));
+  const fields = SVC_FIELDS.map((f) => (f.k === 'proxmoxNode' ? { ...f, options: nodes } : f.k === 'server' ? { ...f, type: 'combo', options: servers } : f));
 
   return html`<${Dlg} title=${isNew ? t('Neuer Service') : t('Service bearbeiten')} onClose=${() => close('cancel')} onSubmit=${() => close('ok')}
     footer=${html`
       ${!isNew && html`<button type="button" class="btn danger" onClick=${async () => {
         if (await confirmDlg(t('„{name}“ löschen?', { name: s.name }), '', t('Löschen'), true)) close('delete');
-      }}><${I} n="trash-2" /> ${t('Service löschen')}</button>`}
+      }}><${I} n="trash-2" /> ${t('Service löschen')}</button>
+      <button type="button" class="btn" onClick=${() => close('duplicate')}><${I} n="copy-plus" /> ${t('Duplizieren')}</button>`}
       <span class="spacer"></span>
       <button type="button" class="btn" onClick=${() => close('cancel')}>${t('Abbrechen')}</button>
       <button class="btn primary">${t('Übernehmen')}</button>`}>
