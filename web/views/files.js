@@ -3,7 +3,8 @@ import {
   promptDlg, confirmDlg, openModal, registerFileBrowser, I, IconBtn, Dlg, t,
 } from '../lib.js';
 
-export const VISUAL = { 'services.yaml': '#/services', 'widgets.yaml': '#/widgets', 'settings.yaml': '#/settings', 'proxmox.yaml': '#/proxmox' };
+export const VISUAL = { 'services.yaml': '#/services', 'widgets.yaml': '#/widgets', 'bookmarks.yaml': '#/bookmarks', 'settings.yaml': '#/settings',
+  'proxmox.yaml': '#/proxmox', 'docker.yaml': '#/docker' };
 const ROOT_LABEL = { config: t('Konfiguration'), icons: t('Icons'), backgrounds: t('Hintergründe') };
 
 async function copyPath(text) {
@@ -134,6 +135,7 @@ export function FileBrowser({ root: initialRoot, path: initialPath = '', grid, p
             <span class="tile-name">${e.name}</span>
           </button>
           ${!pick && html`<div class="tile-actions">
+            ${!e.dir && html`<${IconBtn} n="eye" label=${t('{name} öffnen', { name: e.name })} onClick=${() => open(e)} />`}
             ${!e.dir && html`<${IconBtn} n="copy" label=${t('Pfad von {name} kopieren', { name: e.name })} onClick=${() => copyPath(publicUrl(root, full(e.name)))} />`}
             <${IconBtn} n="pencil" label=${t('{name} umbenennen', { name: e.name })} onClick=${() => rename(e)} />
             <${IconBtn} n="trash-2" cls="del" label=${t('{name} löschen', { name: e.name })} onClick=${() => remove(e)} />

@@ -27,6 +27,13 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// VERSION holds the release number (semver, without "v"); bumped for every release, the tag v<VERSION> must match it.
+//
+//go:embed VERSION
+var versionFile string
+
+var version = strings.TrimSpace(versionFile)
+
 const (
 	cookieName = "hpe_session"
 	sessionTTL = 7 * 24 * time.Hour
@@ -70,7 +77,7 @@ func env(k, def string) string {
 func main() {
 	user, pass := os.Getenv("ADMIN_USER"), os.Getenv("ADMIN_PASSWORD")
 	if user == "" || pass == "" {
-		log.Fatal("ADMIN_USER und ADMIN_PASSWORD müssen gesetzt sein")
+		log.Fatal("ADMIN_USER and ADMIN_PASSWORD must be set")
 	}
 	s, err := newServer(user, pass, map[string]string{
 		"config":      env("CONFIG_DIR", "/data/config"),
@@ -85,7 +92,7 @@ func main() {
 		log.Fatal(err)
 	}
 	addr := ":" + env("PORT", "3001")
-	log.Printf("Homepage Editor läuft auf %s", addr)
+	log.Printf("Homepage Editor %s listening on %s", version, addr)
 	log.Fatal(http.ListenAndServe(addr, s.routes()))
 }
 
@@ -99,7 +106,7 @@ func newServer(user, pass string, dirs map[string]string, stateFile string, defa
 	if b, err := os.ReadFile(stateFile); err == nil {
 		// A broken file is fatal on purpose: starting fresh would overwrite the saved settings.
 		if err := json.Unmarshal(b, &s.st); err != nil {
-			return nil, fmt.Errorf("Status-Datei %s ist beschädigt (löschen setzt alles zurück): %w", stateFile, err)
+			return nil, fmt.Errorf("state file %s is corrupt (deleting it resets all editor settings and sessions): %w", stateFile, err)
 		}
 		if s.st.Sessions == nil {
 			s.st.Sessions = map[string]time.Time{}
@@ -252,7 +259,7 @@ func (s *server) saveLocked() error {
 	s.saveErr = ""
 	if err != nil {
 		s.saveErr = err.Error()
-		log.Printf("Status-Datei nicht gespeichert: %v", err)
+		log.Printf("state file not saved: %v", err)
 	}
 	return err
 }
@@ -308,7 +315,8 @@ func (s *server) getMeta(w http.ResponseWriter, r *http.Request) {
 		TTLDays   int      `json:"sessionDays"`
 		StateFile string   `json:"stateFile"`
 		SaveErr   string   `json:"stateError"`
-	}{cur, s.defaults, custom, n, int(sessionTTL.Hours() / 24), s.stateFile, saveErr})
+		Version   string   `json:"version"`
+	}{cur, s.defaults, custom, n, int(sessionTTL.Hours() / 24), s.stateFile, saveErr, version})
 }
 
 func (s *server) putSettings(w http.ResponseWriter, r *http.Request) {
