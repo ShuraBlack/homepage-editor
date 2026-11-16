@@ -1,22 +1,34 @@
+[Go]: https://img.shields.io/badge/build%20on-grey?style=for-the-badge&logo=Go&color=white
+[Homepage]: https://img.shields.io/badge/Build%20for-GetHomepage.dev-orange?style=for-the-badge&logo=homepage&color=blue&link=https%3A%2F%2Fgethomepage.dev%2F
+[License]: https://img.shields.io/badge/License-MIT-white?style=for-the-badge
+[Version]: https://img.shields.io/github/v/release/shurablack/homepage-editor?display_name=release&style=for-the-badge&color=green
 
 # Homepage Editor
+<img align="right" width="150" height="150" alt="Icon" src="https://github.com/user-attachments/assets/9bcdbfd8-1c80-4731-8d3f-65188821fe91" />
+
+[![Go][]][Go]
+[![Homepage][]][Homepage]
+[![License][]][License]
+[![Version][]][Version]
 
 A small web UI for editing the configuration of a [gethomepage.dev](https://gethomepage.dev) dashboard: visual editors for the YAML files, a code editor as fallback and a file manager for icons and background images.
 
 It runs as one extra container next to your existing Homepage container and works directly on the same `config/` and `images/` folders. No database, no build step: a single Go binary with the frontend embedded.
 
 ## Features
-<img width="1354" height="720" alt="Login" src="https://github.com/user-attachments/assets/3970aad4-62ff-4d60-8ca2-e7f7b5c3e335" />
-<img width="1890" height="930" alt="Services" src="https://github.com/user-attachments/assets/1388fd23-c4d6-49fc-8d34-78532afcaa78" />
+<img width="662" height="360" alt="Login" src="https://github.com/user-attachments/assets/625bd908-a265-4e51-91c3-3d9cbc41be1e" />
 
 - **Services editor** (`services.yaml`)
   - One tab per top-level group; `+ Tab` creates a new one.
   - Groups and subgroups are previewed with their Homepage layout: `style: row` shows services and subgroups side by side in `columns` columns, `column` stacks them.
   - Drag & drop between groups. The target container is outlined and named while dragging; dropping onto a tab moves the item into that group.
+  <img width="662" height="360" alt="Layout" src="https://github.com/user-attachments/assets/e467200e-d52e-497b-8aa2-810e006f25dc" />
+  
   - Service dialog with all common fields, icon picker, widget editor (type suggestions + link to the widget docs) and a generic key/value editor for everything else.
+  <img width="662" height="360" alt="Services" src="https://github.com/user-attachments/assets/bdfc9178-4573-4250-bf2f-692a30b542b8" />
+
   - Group dialog for name, parent group and all layout options (`style`, `columns`, `header`, `tab`, `icon`, …). The layout is written to `settings.yaml`.
   - Search field: matching services are highlighted, every tab shows its number of hits. Duplicate a service from its dialog; the ↗ on a card opens the service itself.
-<img width="1354" height="720" alt="Image import" src="https://github.com/user-attachments/assets/3a48617a-a662-490e-ac7e-a87a8cb835e7" />
 
 - **Keeps `settings.yaml` → `layout` in sync.** Homepage orders and nests groups by `layout` when it exists. When you save the services, the layout gets the same structure: moved subgroups move along, every group gets an entry, existing options and comments are kept.
 - **Visual editors** for `widgets.yaml`, `bookmarks.yaml`, `settings.yaml` (incl. background, layout, quick launch), `proxmox.yaml` and `docker.yaml`.
@@ -25,13 +37,17 @@ It runs as one extra container next to your existing Homepage container and work
 - **Quick search** (Ctrl+K) for pages, services and config files.
 - **Icon picker** with your own icons and a searchable [Dashboard Icons](https://github.com/homarr-labs/dashboard-icons) catalog (loaded from jsDelivr when opened).
 - **Code editor** (CodeMirror) for `custom.css`, `custom.js` and every other file, with YAML validation – broken YAML is never saved.
+<img width="662" height="360" alt="CustomCss" src="https://github.com/user-attachments/assets/eb1133f8-889f-4bf3-b9dc-fe406056dd38" />
+
 - **File manager** for icons and backgrounds: upload (drag & drop), rename, delete, preview, copy the public path. Uploads to the image folders are checked to really be images.
+<img width="662" height="360" alt="Icons" src="https://github.com/user-attachments/assets/d817e0ce-5239-457b-966f-66996b8fbdd3" />
+
 - **Safe writes:** every save is atomic (temp file + rename) and keeps the previous version as `<file>.bak`.
 - **Comments and unknown keys survive** visual editing.
 - **Editor settings in the UI:** accent colour, Homepage URL, public paths of the image folders, sign out other sessions.
   Per browser: dark / light / system colour scheme, compact density, start page, and opening (reloading) Homepage after every save.
 - **Languages:** English, German, French, Italian. The choice is stored in the browser.
-<img width="1354" height="720" alt="Themes" src="https://github.com/user-attachments/assets/2825bf32-b582-4fd7-9c08-ff7d33fcf614" />
+<img width="579" height="360" alt="Settings" src="https://github.com/user-attachments/assets/ee2d96af-7e3c-4e01-84fa-e3a12683b8dc" />
 
 ## How it works
 
